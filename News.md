@@ -1,142 +1,113 @@
-Changes for QuantLib 1.29:
+Changes for QuantLib 1.33:
 ==========================
 
-QuantLib 1.29 includes 42 pull requests from several contributors.
+QuantLib 1.33 includes 38 pull requests from several contributors.
 
 Some of the most notable changes are included below.
 A detailed list of changes is available in ChangeLog.txt and at
-<https://github.com/lballabio/QuantLib/milestone/26?closed=1>.
+<https://github.com/lballabio/QuantLib/milestone/31?closed=1>.
 
 
 Portability
 -----------
 
-- **End of support:** as announced in the notes for the previous
-  release, this release no longer manages thread-local singletons via
-  a user-provided `sessionId` function, and therefore the latter is no
-  longer needed.  Instead, the code now uses the built-in language
-  support for thread-local variables.  Thanks go to Peter Caspers
-  (@pcaspers).
+- **Future end of support:** as announced in release 1.32, we're
+  targeting the future release 1.35 as the last to support Visual C++
+  2015, g++ up to version 6.x, and clang up to version 4; support for
+  those compilers will be dropped in release 1.36, about nine months
+  from now.  From that point onwards, this will allows us to enable
+  the use of C++17 in the code base.
 
-- **Future end of support:** as announced in the notes for the
-  previous release, after the next couple of releases, using
-  `std::tuple`, `std::function` and `std::bind` (instead of their
-  `boost` counterparts) will become the default.  If you're using
-  `ext::tuple` etc. in your code (which is suggested), this should be
-  a transparent change.  If not, you'll still be able to choose the
-  `boost` versions via a configure switch for a while; but we do
-  suggest you start using `ext::tuple` etc. in the meantime.
+- **Future end of support:** at the same time as the above, we'll also
+  remove the configure switch that allows to use `boost::tuple`,
+  `boost::function` and `boost::bind` instead of their `std`
+  counterparts; the `std` classes are already the default since
+  release 1.32.
 
-- Replaced internal usage of `boost::thread` with `std::thread`;
-  thanks to Jonathan Sweemer (@sweemer).  This removed our last
-  dependency on Boost binaries and makes it possible to compile
-  QuantLib using a header-only Boost installation.
-
-- On Windows, it is now possible to use the MSVC dynamic runtime when
-  using cmake by passing
-  `-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL`
-  on the command line; thanks to Jonathan Sweemer (@sweemer).  The
-  static runtime remains the default.
-
-- It is now possible to build QuantLib with Intel's `icpx` compiler
-  using cmake; thanks to Jonathan Sweemer (@sweemer).  Note that in
-  order to get all the unit tests passing, `-fp-model=precise` must be
-  added to `CMAKE_CXX_FLAGS`.
+- Added CMake presets for Apple; thanks to Christian Köhnenkamp
+  (@kohnech).
 
 
-Date/time
----------
+Dates and calendars
+-------------------
 
-- Updated Chinese holidays for 2023; thanks to Cheng Li
-  (@wegamekinglc).
+- Added New Year's Eve as a holiday to Chilean calendar; thanks to
+  GitHub user @MoixaStrikes.
 
-- Added in-lieu holiday for Christmas 2022 to South-African calendar;
-  thanks to Joshua Hayes (@JoshHayes).
+- Added Chinese holidays for 2024; thanks to Cheng Li (@wegamekinglc).
 
-- Added King Charles III coronation holiday to UK calendar; thanks to
+- Updated list of known ECB dates; thanks to GitHub user @PaulXiCao.
+
+- Added Thailandese and Taiwanese holidays up to 2024; thanks to
   Fredrik Gerdin Börjesson (@gbfredrik).
 
-- Added holiday for National Day of Mourning to Australian calendar;
-  thanks to Fredrik Gerdin Börjesson (@gbfredrik).
+- Added one-time holiday to South African calendar; thanks to Francois
+  Botha (@igitur).
+
+
+Models
+------
+
+- Added support for angled contour shift integrals to Heston model;
+  thanks to Klaus Spanderen (@klausspanderen).
 
 
 Instruments
 -----------
 
-- Added high performance/precision American engine based on
-  fixed-point iteration for the exercise boundary; thanks to Klaus
-  Spanderen (@klausspanderen).
+- Allow different calendars and frequencies for different legs in
+  `MakeOIS` and `OISRateHelper`; thanks to Eugene Toder (@eltoder).
 
-- Bonds with draw-down (i.e., increasing notionals) are now allowed;
-  thanks to Oleg Kulkov (@Borgomi42 ).
-
-- Added `withIndexedCoupons` and `withAtParCoupons` methods to
-  `MakeSwaption` for easier initialization; thanks to Ralf Konrad
-  (@ralfkonrad).
-
-- It is now possible to use the same pricing engine for vanilla and
-  dividend vanilla options, or for barrier and dividend barrier
-  options (@lballabio).
+- Enabled negative payment lag in swap legs; thanks to GitHub user
+  @Stoozy.
 
 
-Indexes
--------
+Random numbers
+--------------
 
-- Creating a zero inflation index as "interpolated" is now deprecated;
-  thanks to Ralf Konrad (@ralfkonrad).  The index should only return
-  monthly fixings.  Interpolation is now the responsibility of
-  inflation-based coupons.
+- Added Burley 2020 scrambled Sobol sequence generator; thanks to
+  Peter Caspers (@pcaspers).
 
 
-Term structures
----------------
+Tests
+-----
 
-- The `ConstantCPIVolatility` constructor can now take a handle to a
-  volatility quote, instead of just an immutable number (@lballabio).
+- Use automated registration of unit tests; thanks to Siddharth
+  Mehrotra (@Sidsky).
+
+- Added a few fuzzing tests; thanks to Nathaniel Brough (@silvergasp).
+
+- Improved test coverage for a few classes; thanks to GitHub user
+  @PaulXiCao.
 
 
 Deprecated features
 -------------------
 
-- **Removed** features deprecated in version 1.24:
-  - the `createAtParCoupons`, `createIndexedCoupons` and
-    `usingAtParCoupons` methods of `IborCoupon`;
-  - the `RiskyBond` class and its subclasses `RiskyFixedBond` and
-    `RiskyFloatingBond`;
-  - the `CrossCurrencyBasisSwapRateHelper` typedef;
-  - the `termStructure_` data member of `BlackCalibrationHelper`;
-  - the static `baseCurrency` and `conversionType` data members of `Money`;
-  - the `nominalTermStructure` method and the `nominalTermStructure_`
-    data member of `InflationTermStructure`;
-  - the constructor of the `UnitedStates` calendar not taking an
-    explicit market.
+- **Removed** features deprecated in version 1.28:
+  - The overload of `CallableBond::impliedVolatility` taking an NPV as target.
+  - The constructor of `AmortizingFixedRateBond` taking a sinking frequency.
+  - The constructor of `AmortizingFixedRateBond` taking a vector of
+    `InterestRate` instances.
+  - The constructor of `FixedRateBond` taking start date, maturity
+    date etc. instead of a schedule.
+  - The constructor of `FixedRateBond` taking a vector of
+    `InterestRate` instances.
+  - The constructor of `FloatingRateBond` taking start date, maturity
+    date etc. instead of a schedule.
+  - The constructor of `CPICapFloor` taking a handle to an
+    interest-rate index.
+  - The `CPICapFloor::inflationIndex` method.
+  - The `infIndex` data member of the `CPICapFloor::arguments` class.
+  - A redundant constructor of `SabrSmileSection`.
+  - The empty headers
+    `ql/experimental/amortizingbonds/amortizingcmsratebond.hpp`,
+    `ql/experimental/amortizingbonds/amortizingfixedratebond.hpp` and
+    `ql/experimental/amortizingbonds/amortizingfloatingratebond.hpp`.
 
-- Deprecated the `argument_type`, `first_argument_type`,
-  `second_argument_type` and `result_type` typedefs in a number of
-  classes; use `auto` or `decltype` instead.
-
-- Deprecated the constructors of `InflationIndex`,
-  `ZeroInflationIndex`, `FRHICP`, `ZACPI`, `UKRPI`, `EUHICP`,
-  `EUHICPXT`, `USCPI`, `AUCPI` and `GenericCPI` taking an
-  `interpolated` parameter; use another constructor.
-
-- Deprecated the `interpolated` method and the `interpolated_` data
-  member of `InflationIndex`.
-
-- Deprecated the `ThreadKey` typedef.  It was used in the signature of
-  `sessionId`, which is no longer needed after the changes in the
-  `Singleton` implementation.
-
-- Deprecated the `rateCurve_` data member of the
-  `InflationCouponPricer` base class.  If you need it, provide it in
-  your derived class.
-
-- Deprecated the `npvbps` function taking NPV and BPS as references.
-  Use the overload returning a pair of `Real`s.
+- Deprecated the constructor of `Currency` and `Currency::Data` taking
+  a format string, and the `Currency::format` method.
 
 
-**Thanks go also** to Matthias Groncki (@mgroncki), Jonathan Sweemer
-(@sweemer) and Nijaz Kovacevic (@NijazK) for a number of smaller fixes
-and improvements, to the Xcelerit Dev Team (@xcelerit-dev) for
-improvements to the automated CI builds, and to Vincenzo Ferrazzanno
-(@vincferr), @alienbrett, @xuruilong100 and @philippb90 for raising issues.
+**Thanks go also** to Yi Jiang (@yjian012), Hoang Giap Vu (@hgv79116)
+and Jonathan Sweemer (@sweemer) for smaller fixes and improvements.

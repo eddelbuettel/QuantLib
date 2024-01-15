@@ -41,6 +41,7 @@ namespace QuantLib {
         <li>Nossa Sra. Aparecida Day, October 12th</li>
         <li>All Souls Day, November 2nd</li>
         <li>Republic Day, November 15th</li>
+        <li>Black Awareness Day, November 20th (since 2024)</li>
         <li>Christmas, December 25th</li>
         <li>Passion of Christ</li>
         <li>Carnival</li>
@@ -76,12 +77,12 @@ namespace QuantLib {
     */
     class Brazil : public Calendar {
       private:
-        class SettlementImpl : public Calendar::WesternImpl {
+        class SettlementImpl final : public Calendar::WesternImpl {
           public:
             std::string name() const override { return "Brazil"; }
             bool isBusinessDay(const Date&) const override;
         };
-        class ExchangeImpl : public Calendar::WesternImpl {
+        class ExchangeImpl final : public Calendar::WesternImpl {
           public:
             std::string name() const override { return "BOVESPA"; }
             bool isBusinessDay(const Date&) const override;
