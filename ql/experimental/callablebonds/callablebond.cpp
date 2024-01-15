@@ -138,26 +138,11 @@ namespace QuantLib {
         return solver.solve(f, accuracy, guess, minVol, maxVol);
     }
 
-    Volatility CallableBond::impliedVolatility(
-                              Real targetValue,
-                              const Handle<YieldTermStructure>& discountCurve,
-                              Real accuracy,
-                              Size maxEvaluations,
-                              Volatility minVol,
-                              Volatility maxVol) const {
-        QL_REQUIRE(!isExpired(), "instrument expired");
-        Volatility guess = 0.5 * (minVol + maxVol);
-        ImpliedVolHelper f(*this, discountCurve, targetValue, true);
-        Brent solver;
-        solver.setMaxEvaluations(maxEvaluations);
-        return solver.solve(f, accuracy, guess, minVol, maxVol);
-    }
-
 
     namespace {
 
     template<class T>
-    class RestoreVal {
+    class RestoreVal { // NOLINT(cppcoreguidelines-special-member-functions)
         T orig_;
         T &ref_;
     public:
@@ -511,7 +496,7 @@ namespace QuantLib {
     : CallableBond(settlementDays, schedule.dates().back(), schedule.calendar(),
                    accrualDayCounter, faceAmount, issueDate, putCallSchedule) {
 
-        frequency_ = schedule.tenor().frequency();
+        frequency_ = schedule.hasTenor() ? schedule.tenor().frequency() : NoFrequency;
 
         cashflows_ =
             FixedRateLeg(schedule)

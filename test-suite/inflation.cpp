@@ -18,11 +18,12 @@
  FOR A PARTICULAR PURPOSE.  See the license for more details.
  */
 
-#include "inflation.hpp"
+#include "toplevelfixture.hpp"
 #include "utilities.hpp"
 #include <ql/cashflows/indexedcashflow.hpp>
 #include <ql/indexes/inflation/ukrpi.hpp>
 #include <ql/indexes/inflation/euhicp.hpp>
+#include <ql/indexes/inflation/ukhicp.hpp>
 #include <ql/termstructures/inflation/piecewisezeroinflationcurve.hpp>
 #include <ql/termstructures/inflation/piecewiseyoyinflationcurve.hpp>
 #include <ql/termstructures/yield/flatforward.hpp>
@@ -39,17 +40,18 @@
 #include <ql/cashflows/inflationcouponpricer.hpp>
 #include <ql/cashflows/fixedratecoupon.hpp>
 #include <ql/instruments/yearonyearinflationswap.hpp>
-
 #include <functional>
 
-
 using boost::unit_test_framework::test_suite;
-
 using namespace QuantLib;
 
 using std::fabs;
 using std::pow;
 using std::vector;
+
+BOOST_FIXTURE_TEST_SUITE(QuantLibTests, TopLevelFixture)
+
+BOOST_AUTO_TEST_SUITE(InflationTests)
 
 #undef REPORT_FAILURE
 #define REPORT_FAILURE(d, res, periodName) \
@@ -58,48 +60,39 @@ using std::vector;
         << res.first << "), End Date (" \
         << res.second << ")"); \
 
-namespace inflation_test {
+struct Datum {
+    Date date;
+    Rate rate;
+};
 
-    struct Datum {
-        Date date;
-        Rate rate;
-    };
-
-    ext::shared_ptr<YieldTermStructure> nominalTermStructure() {
-        Date evaluationDate(13, August, 2007);
-        return ext::shared_ptr<YieldTermStructure>(
+ext::shared_ptr<YieldTermStructure> nominalTermStructure() {
+    Date evaluationDate(13, August, 2007);
+    return ext::shared_ptr<YieldTermStructure>(
             new FlatForward(evaluationDate, 0.05, Actual360()));
-    }
+}
 
-    template <class T>
-    std::vector<ext::shared_ptr<BootstrapHelper<T> > > makeHelpers(
+template <class T>
+std::vector<ext::shared_ptr<BootstrapHelper<T> > > makeHelpers(
         const std::vector<Datum>& iiData,
         std::function<ext::shared_ptr<BootstrapHelper<T> >(const Handle<Quote>&, const Date&)>
             makeHelper) {
 
-        std::vector<ext::shared_ptr<BootstrapHelper<T> > > instruments;
-        for (Datum datum : iiData) {
-            Date maturity = datum.date;
-            Handle<Quote> quote(ext::shared_ptr<Quote>(new SimpleQuote(datum.rate / 100.0)));
-            auto anInstrument = makeHelper(quote, maturity);
-            instruments.push_back(anInstrument);
-        }
-
-        return instruments;
+    std::vector<ext::shared_ptr<BootstrapHelper<T> > > instruments;
+    for (Datum datum : iiData) {
+        Date maturity = datum.date;
+        Handle<Quote> quote(ext::shared_ptr<Quote>(new SimpleQuote(datum.rate / 100.0)));
+        auto anInstrument = makeHelper(quote, maturity);
+        instruments.push_back(anInstrument);
     }
+
+    return instruments;
 }
 
-//===========================================================================================
-// zero inflation tests, index, termstructure, and swaps
-//===========================================================================================
-
-namespace inflation_test {
-
 void checkSeasonality(const Handle<ZeroInflationTermStructure>& hz,
-    const ext::shared_ptr<ZeroInflationIndex>& ii) {
+                      const ext::shared_ptr<ZeroInflationIndex>& ii) {
 
     QL_REQUIRE(!hz->hasSeasonality(), "We require that the initially passed in term structure "
-        << "does not have seasonality");
+               << "does not have seasonality");
 
     // Tolerance that we will use below when comparing projected index fixings
     Rate tolerance = 1e-12;
@@ -155,9 +148,9 @@ void checkSeasonality(const Handle<ZeroInflationTermStructure>& hz,
     for (Size i = 0; i < fixingDates.size(); i++) {
         if (fabs(noSeasonalityFixings[i] - unitSeasonalityFixings[i]) > tolerance) {
             BOOST_ERROR("Seasonality doesn't work correctly when seasonality factors are set = 1"
-                << "No seasonality fixing is: " << noSeasonalityFixings[i]
-                << " but unit seasonality fixing is: " << unitSeasonalityFixings[i]
-                << " for fixing date " << io::iso_date(fixingDates[i]));
+                        << "No seasonality fixing is: " << noSeasonalityFixings[i]
+                        << " but unit seasonality fixing is: " << unitSeasonalityFixings[i]
+                        << " for fixing date " << io::iso_date(fixingDates[i]));
         }
     }
 
@@ -174,7 +167,7 @@ void checkSeasonality(const Handle<ZeroInflationTermStructure>& hz,
         if (!ii->interpolated()) {
         QL_DEPRECATED_ENABLE_WARNING
             expectedSeasonalityFixings[i] =
-                ii->fixing(fixingDates[i], true) * seasonalityFactors[i] / baseSeasonality;
+            ii->fixing(fixingDates[i], true) * seasonalityFactors[i] / baseSeasonality;
         } else {
             std::pair<Date, Date> p1 = inflationPeriod(fixingDates[i], ii->frequency());
             Date firstDayCurrentPeriod = p1.first;
@@ -191,10 +184,10 @@ void checkSeasonality(const Handle<ZeroInflationTermStructure>& hz,
             Real interpolationCoefficient = (observationDate - p2.first) / daysInPeriod;
 
             Rate i1adj = ii->fixing(firstDayCurrentPeriod, true) *
-                         seasonalityFactors[firstMonthIndex] / baseSeasonality;
+                seasonalityFactors[firstMonthIndex] / baseSeasonality;
 
             Rate i2adj = ii->fixing(firstDayNextPeriod, true) *
-                         seasonalityFactors[secondMonthIndex] / baseSeasonality;
+                seasonalityFactors[secondMonthIndex] / baseSeasonality;
             expectedSeasonalityFixings[i] =
                 i1adj + (i2adj - i1adj) * interpolationCoefficient;
         }
@@ -211,9 +204,9 @@ void checkSeasonality(const Handle<ZeroInflationTermStructure>& hz,
     for (Size i = 0; i < fixingDates.size(); i++) {
         if (fabs(expectedSeasonalityFixings[i] - nonUnitSeasonalityFixings[i]) > tolerance) {
             BOOST_ERROR("Seasonality doesn't work correctly for non-unit seasonality factors."
-                << " Expected fixing is: " << expectedSeasonalityFixings[i]
-                << " but calculated fixing is: " << nonUnitSeasonalityFixings[i]
-                << " for fixing date " << io::iso_date(fixingDates[i]));
+                        << " Expected fixing is: " << expectedSeasonalityFixings[i]
+                        << " but calculated fixing is: " << nonUnitSeasonalityFixings[i]
+                        << " for fixing date " << io::iso_date(fixingDates[i]));
         }
     }
 
@@ -228,20 +221,20 @@ void checkSeasonality(const Handle<ZeroInflationTermStructure>& hz,
     for (Size i = 0; i < fixingDates.size(); i++) {
         if (fabs(noSeasonalityFixings[i] - unsetSeasonalityFixings[i]) > tolerance) {
             BOOST_ERROR("Unsetting seasonality doesn't work correctly."
-                << " No seasonality fixing is: " << noSeasonalityFixings[i]
-                << " but after unsetting seasonality fixing is: " << unitSeasonalityFixings[i]
-                << " for fixing date " << io::iso_date(fixingDates[i]));
+                        << " No seasonality fixing is: " << noSeasonalityFixings[i]
+                        << " but after unsetting seasonality fixing is: " << unitSeasonalityFixings[i]
+                        << " for fixing date " << io::iso_date(fixingDates[i]));
         }
     }
 }
 
-}
 
-void InflationTest::testZeroIndex() {
+//===========================================================================================
+// zero inflation tests, index, termstructure, and swaps
+//===========================================================================================
+
+BOOST_AUTO_TEST_CASE(testZeroIndex) {
     BOOST_TEST_MESSAGE("Testing zero inflation indices...");
-
-    SavedSettings backup;
-    IndexHistoryCleaner cleaner;
 
     QL_DEPRECATED_DISABLE_WARNING
 
@@ -271,6 +264,18 @@ void InflationTest::testZeroIndex() {
                     << ukrpi.revised() << ", "
                     << ukrpi.interpolated() << ", "
                     << ukrpi.availabilityLag() << ")");
+    }
+
+    UKHICP ukhicp;
+    if (ukhicp.name() != "UK HICP"
+        || ukhicp.frequency() != Monthly
+        || ukhicp.revised() 
+        || ukhicp.availabilityLag() != 1 * Months) {
+        BOOST_ERROR("wrong UK HICP data ("
+                    << ukhicp.name() << ", "
+                    << ukhicp.frequency() << ", "
+                    << ukhicp.revised() << ", "
+                    << ", " << ukhicp.availabilityLag() << ")");
     }
 
     QL_DEPRECATED_ENABLE_WARNING
@@ -324,19 +329,249 @@ void InflationTest::testZeroIndex() {
     }
 }
 
-
-
-void InflationTest::testZeroTermStructure() {
+BOOST_AUTO_TEST_CASE(testZeroTermStructure) {
     BOOST_TEST_MESSAGE("Testing zero inflation term structure...");
-
-    using namespace inflation_test;
-
-    SavedSettings backup;
-    IndexHistoryCleaner cleaner;
 
     // try the Zero UK
     Calendar calendar = UnitedKingdom();
     BusinessDayConvention bdc = ModifiedFollowing;
+    Date evaluationDate(13, August, 2007);
+    evaluationDate = calendar.adjust(evaluationDate);
+    Settings::instance().evaluationDate() = evaluationDate;
+
+    // fixing data
+    Date from(1, January, 2005);
+    Date to(13, August, 2007);
+    Schedule rpiSchedule = MakeSchedule().from(from).to(to)
+    .withTenor(1*Months)
+    .withCalendar(UnitedKingdom())
+    .withConvention(ModifiedFollowing);
+
+    Real fixData[] = {
+        189.9, 189.9, 189.6, 190.5, 191.6, 192.0,
+        192.2, 192.2, 192.6, 193.1, 193.3, 193.6,
+        194.1, 193.4, 194.2, 195.0, 196.5, 197.7,
+        198.5, 198.5, 199.2, 200.1, 200.4, 201.1,
+        202.7, 201.6, 203.1, 204.4, 205.4, 206.2,
+        207.3};
+
+    RelinkableHandle<ZeroInflationTermStructure> hz;
+    auto ii = ext::make_shared<UKRPI>(hz);
+    for (Size i=0; i<LENGTH(fixData); i++) {
+        ii->addFixing(rpiSchedule[i], fixData[i]);
+    }
+
+    Handle<YieldTermStructure> nominalTS(nominalTermStructure());
+
+    // now build the zero inflation curve
+    std::vector<Datum> zcData = {
+        { Date(13, August, 2008), 2.93 },
+        { Date(13, August, 2009), 2.95 },
+        { Date(13, August, 2010), 2.965 },
+        { Date(15, August, 2011), 2.98 },
+        { Date(13, August, 2012), 3.0 },
+        { Date(13, August, 2014), 3.06 },
+        { Date(13, August, 2017), 3.175 },
+        { Date(13, August, 2019), 3.243 },
+        { Date(15, August, 2022), 3.293 },
+        { Date(14, August, 2027), 3.338 },
+        { Date(13, August, 2032), 3.348 },
+        { Date(15, August, 2037), 3.348 },
+        { Date(13, August, 2047), 3.308 },
+        { Date(13, August, 2057), 3.228 }
+    };
+
+    Period observationLag = Period(3, Months);
+    DayCounter dc = Thirty360(Thirty360::BondBasis);
+    Frequency frequency = Monthly;
+
+    auto makeHelper = [&](const Handle<Quote>& quote, const Date& maturity) {
+        return ext::make_shared<ZeroCouponInflationSwapHelper>(
+            quote, observationLag, maturity, calendar, bdc, dc, ii, CPI::AsIndex, nominalTS);
+    };
+    auto helpers = makeHelpers<ZeroInflationTermStructure>(zcData, makeHelper);
+
+    Rate baseZeroRate = zcData[0].rate/100.0;
+    ext::shared_ptr<PiecewiseZeroInflationCurve<Linear> > pZITS(
+                        new PiecewiseZeroInflationCurve<Linear>(
+                        evaluationDate, calendar, dc, observationLag,
+                        frequency, baseZeroRate, helpers));
+    hz.linkTo(pZITS);
+
+    //===========================================================================================
+    // first check that the quoted swaps are repriced correctly
+
+    const Real eps = 1.0e-6;
+    auto engine = ext::make_shared<DiscountingSwapEngine>(nominalTS);
+    
+    for (const auto& datum: zcData) {
+        ZeroCouponInflationSwap nzcis(Swap::Payer,
+                                      1000000.0,
+                                      evaluationDate,
+                                      datum.date,
+                                      calendar, bdc, dc,
+                                      datum.rate/100.0,
+                                      ii, observationLag,
+                                      CPI::AsIndex);
+        nzcis.setPricingEngine(engine);
+
+        BOOST_CHECK_MESSAGE(std::fabs(nzcis.NPV()) < eps,
+                            "zero-coupon inflation swap does not reprice to zero"
+                            << "\n    NPV:      " << nzcis.NPV()
+                            << "\n    maturity: " << nzcis.maturityDate()
+                            << "\n    rate:     " << datum.rate);
+    }
+
+    //===========================================================================================
+    // now test the forecasting capability of the index.
+
+    from = hz->referenceDate();
+    to = hz->maxDate()-1*Months; // a bit of margin for adjustments
+    Schedule testIndex = MakeSchedule().from(from).to(to)
+                            .withTenor(1*Months)
+                            .withCalendar(UnitedKingdom())
+                            .withConvention(ModifiedFollowing);
+
+    // we are testing UKRPI which is not interpolated
+    Date bd = hz->baseDate();
+    Real bf = ii->fixing(bd);
+    for (const auto& d : testIndex) {
+        Real z = hz->zeroRate(d, Period(0, Days));
+        Real t = hz->dayCounter().yearFraction(bd, inflationPeriod(d, ii->frequency()).first);
+        Real calc = bf * std::pow(1+z, t);
+        if (t<=0)
+            calc = ii->fixing(d,false); // still historical
+        if (std::fabs(calc - ii->fixing(d,true)) > eps)
+            BOOST_ERROR("inflation index does not forecast correctly"
+                        << "\n    date:        " << d
+                        << "\n    base date:   " << bd
+                        << "\n    base fixing: " << bf
+                        << "\n    expected:    " << calc
+                        << "\n    forecast:    " << ii->fixing(d,true));
+    }
+
+    //===========================================================================================
+    // Add a seasonality correction.  The curve should recalculate and still reprice the swaps.
+
+    Date nextBaseDate = inflationPeriod(hz->baseDate(), ii->frequency()).second;
+    Date seasonalityBaseDate(31, January, nextBaseDate.year());
+    vector<Rate> seasonalityFactors = {
+        1.003245,
+        1.000000,
+        0.999715,
+        1.000495,
+        1.000929,
+        0.998687,
+        0.995949,
+        0.994682,
+        0.995949,
+        1.000519,
+        1.003705,
+        1.004186
+    };
+
+    ext::shared_ptr<MultiplicativePriceSeasonality> nonUnitSeasonality =
+        ext::make_shared<MultiplicativePriceSeasonality>(seasonalityBaseDate, Monthly, seasonalityFactors);
+
+    pZITS->setSeasonality(nonUnitSeasonality);
+    
+    for (const auto& datum: zcData) {
+        ZeroCouponInflationSwap nzcis(Swap::Payer,
+                                      1000000.0,
+                                      evaluationDate,
+                                      datum.date,
+                                      calendar, bdc, dc,
+                                      datum.rate/100.0,
+                                      ii, observationLag,
+                                      CPI::AsIndex);
+        nzcis.setPricingEngine(engine);
+
+        BOOST_CHECK_MESSAGE(std::fabs(nzcis.NPV()) < eps,
+                            "zero-coupon inflation swap does not reprice to zero"
+                            << "\n    NPV:      " << nzcis.NPV()
+                            << "\n    maturity: " << nzcis.maturityDate()
+                            << "\n    rate:     " << datum.rate);
+    }
+
+    //==============================================================================
+    // now do an INTERPOLATED index, i.e. repeat everything on a fake version of
+    // UKRPI (to save making another term structure)
+
+    bool interpYES = true;
+    QL_DEPRECATED_DISABLE_WARNING
+    ext::shared_ptr<UKRPI> iiyes(new UKRPI(interpYES, hz));
+    QL_DEPRECATED_ENABLE_WARNING
+    for (Size i=0; i<LENGTH(fixData);i++) {
+        iiyes->addFixing(rpiSchedule[i], fixData[i]);
+    }
+
+    auto makeHelperYes = [&](const Handle<Quote>& quote, const Date& maturity) {
+        return ext::make_shared<ZeroCouponInflationSwapHelper>(
+            quote, observationLag, maturity, calendar, bdc, dc, iiyes, CPI::AsIndex,
+            Handle<YieldTermStructure>(nominalTS));
+    };
+    auto helpersyes = makeHelpers<ZeroInflationTermStructure>(zcData, makeHelperYes);
+
+    ext::shared_ptr<PiecewiseZeroInflationCurve<Linear> > pZITSyes(
+            new PiecewiseZeroInflationCurve<Linear>(
+            evaluationDate, calendar, dc, observationLag,
+            frequency, baseZeroRate, helpersyes));
+
+    hz.linkTo(pZITSyes);
+
+    //===========================================================================================
+    // Test zero coupon swaps
+    
+    for (const auto& datum: zcData) {
+        ZeroCouponInflationSwap nzcis(Swap::Payer,
+                                      1000000.0,
+                                      evaluationDate,
+                                      datum.date,
+                                      calendar, bdc, dc,
+                                      datum.rate/100.0,
+                                      iiyes, observationLag,
+                                      CPI::AsIndex);
+        nzcis.setPricingEngine(engine);
+
+        BOOST_CHECK_MESSAGE(std::fabs(nzcis.NPV()) < eps,
+                            "zero-coupon inflation swap does not reprice to zero"
+                            << "\n    NPV:      " << nzcis.NPV()
+                            << "\n    maturity: " << nzcis.maturityDate()
+                            << "\n    rate:     " << datum.rate);
+    }
+
+    //===========================================================================================
+    // Perform checks on the seasonality for this interpolated index
+
+    pZITSyes->setSeasonality(nonUnitSeasonality);
+
+    for (const auto& datum: zcData) {
+        ZeroCouponInflationSwap nzcis(Swap::Payer,
+                                      1000000.0,
+                                      evaluationDate,
+                                      datum.date,
+                                      calendar, bdc, dc,
+                                      datum.rate/100.0,
+                                      iiyes, observationLag,
+                                      CPI::AsIndex);
+        nzcis.setPricingEngine(engine);
+
+        BOOST_CHECK_MESSAGE(std::fabs(nzcis.NPV()) < eps,
+                            "zero-coupon inflation swap does not reprice to zero"
+                            << "\n    NPV:      " << nzcis.NPV()
+                            << "\n    maturity: " << nzcis.maturityDate()
+                            << "\n    rate:     " << datum.rate);
+    }
+
+    // remove circular refernce
+    hz.linkTo(ext::shared_ptr<ZeroInflationTermStructure>());
+}
+
+BOOST_AUTO_TEST_CASE(testSeasonalityCorrection) {
+    BOOST_TEST_MESSAGE("Testing seasonality correction on zero inflation term structure...");
+
+    // try the Zero UK
+    Calendar calendar = UnitedKingdom();
     Date evaluationDate(13, August, 2007);
     evaluationDate = calendar.adjust(evaluationDate);
     Settings::instance().evaluationDate() = evaluationDate;
@@ -357,151 +592,57 @@ void InflationTest::testZeroTermStructure() {
         207.3};
 
     RelinkableHandle<ZeroInflationTermStructure> hz;
-    auto iiUKRPI = ext::make_shared<UKRPI>(hz);
+    auto ii = ext::make_shared<UKRPI>(hz);
     for (Size i=0; i<LENGTH(fixData); i++) {
-        iiUKRPI->addFixing(rpiSchedule[i], fixData[i]);
+        ii->addFixing(rpiSchedule[i], fixData[i]);
     }
 
-    ext::shared_ptr<ZeroInflationIndex> ii = ext::dynamic_pointer_cast<ZeroInflationIndex>(iiUKRPI);
     ext::shared_ptr<YieldTermStructure> nominalTS = nominalTermStructure();
 
-    // now build the zero inflation curve
-    std::vector<Datum> zcData = {
-        { Date(13, August, 2008), 2.93 },
-        { Date(13, August, 2009), 2.95 },
-        { Date(13, August, 2010), 2.965 },
-        { Date(15, August, 2011), 2.98 },
-        { Date(13, August, 2012), 3.0 },
-        { Date(13, August, 2014), 3.06 },
-        { Date(13, August, 2017), 3.175 },
-        { Date(13, August, 2019), 3.243 },
-        { Date(15, August, 2022), 3.293 },
-        { Date(14, August, 2027), 3.338 },
-        { Date(13, August, 2032), 3.348 },
-        { Date(15, August, 2037), 3.348 },
-        { Date(13, August, 2047), 3.308 },
-        { Date(13, August, 2057), 3.228 }
+    std::vector<Date> nodes = {
+        Date(1, June, 2007),
+        Date(1, June, 2008),
+        Date(1, June, 2009),
+        Date(1, June, 2010),
+        Date(1, June, 2011),
+        Date(1, June, 2012),
+        Date(1, June, 2014),
+        Date(1, June, 2017),
+        Date(1, June, 2019),
+        Date(1, June, 2022),
+        Date(1, June, 2027),
+        Date(1, June, 2032),
+        Date(1, June, 2037),
+        Date(1, June, 2047),
+        Date(1, June, 2057)
+    };
+
+    std::vector<Rate> rates = {
+        0.0293,
+        0.0293,
+        0.0295,
+        0.02965,
+        0.0298,
+        0.03,
+        0.0306,
+        0.03175,
+        0.03243,
+        0.03293,
+        0.03338,
+        0.03348,
+        0.03348,
+        0.03308,
+        0.03228
     };
 
     Period observationLag = Period(2,Months);
     DayCounter dc = Thirty360(Thirty360::BondBasis);
     Frequency frequency = Monthly;
 
-    auto makeHelper = [&](const Handle<Quote>& quote, const Date& maturity) {
-        return ext::make_shared<ZeroCouponInflationSwapHelper>(
-            quote, observationLag, maturity, calendar, bdc, dc, ii, CPI::AsIndex,
-            Handle<YieldTermStructure>(nominalTS));
-    };
-    auto helpers = makeHelpers<ZeroInflationTermStructure>(zcData, makeHelper);
-
-    Rate baseZeroRate = zcData[0].rate/100.0;
-    ext::shared_ptr<PiecewiseZeroInflationCurve<Linear> > pZITS(
-                        new PiecewiseZeroInflationCurve<Linear>(
-                        evaluationDate, calendar, dc, observationLag,
-                        frequency, baseZeroRate, helpers));
-    pZITS->recalculate();
-
-    // first check that the zero rates on the curve match the data
-    // and that the helpers give the correct implied rates
-    const Real eps = 1.0e-8;
-    bool forceLinearInterpolation = false;
-    for (Size i=0; i<zcData.size(); i++) {
-        BOOST_REQUIRE_MESSAGE(std::fabs(zcData[i].rate/100.0
-            - pZITS->zeroRate(zcData[i].date, observationLag, forceLinearInterpolation)) < eps,
-            "ZITS zeroRate != instrument "
-            << pZITS->zeroRate(zcData[i].date, observationLag, forceLinearInterpolation)
-            << " vs " << zcData[i].rate/100.0
-            << " forceLinearInterpolation " << forceLinearInterpolation);
-        BOOST_REQUIRE_MESSAGE(std::fabs(helpers[i]->impliedQuote()
-            - zcData[i].rate/100.0) < eps,
-            "ZITS implied quote != instrument "
-            << helpers[i]->impliedQuote()
-            << " vs " << zcData[i].rate/100.0);
-    }
-
-
-    // now test the forecasting capability of the index.
-    hz.linkTo(pZITS);
-    from = hz->baseDate();
-    to = hz->maxDate()-1*Months; // a bit of margin for adjustments
-    Schedule testIndex = MakeSchedule().from(from).to(to)
-                            .withTenor(1*Months)
-                            .withCalendar(UnitedKingdom())
-                            .withConvention(ModifiedFollowing);
-
-
-    // we are testing UKRPI which is not interpolated
-    Date bd = hz->baseDate();
-    Real bf = ii->fixing(bd);
-    for (const auto& d : testIndex) {
-        Real z = hz->zeroRate(d, Period(0, Days));
-        Real t = hz->dayCounter().yearFraction(bd, d);
-        QL_DEPRECATED_DISABLE_WARNING
-        if(!ii->interpolated()) // because fixing constant over period
-            t = hz->dayCounter().yearFraction(bd,
-                inflationPeriod(d, ii->frequency()).first);
-        QL_DEPRECATED_ENABLE_WARNING
-        Real calc = bf * pow( 1+z, t);
-        if (t<=0)
-            calc = ii->fixing(d,false); // still historical
-        if (std::fabs(calc - ii->fixing(d,true))/10000.0 > eps)
-            BOOST_ERROR("ZC index does not forecast correctly for date " << d
-                        << " from base date " << bd
-                        << " with fixing " << bf
-                        << ", correct:  " << calc
-                        << ", fix: " << ii->fixing(d,true)
-                        << ", t " << t);
-    }
-
-
-    //===========================================================================================
-    // Test zero-inflation-indexed (i.e. cpi ratio) cashflow
-    // just ordinary indexed cashflow with a zero inflation index
-
-    Date baseDate(1, January, 2006);
-    Date fixDate(1, August, 2014);
-    Date payDate=UnitedKingdom().adjust(fixDate+Period(3,Months),ModifiedFollowing);
-    ext::shared_ptr<Index> ind = ext::dynamic_pointer_cast<Index>(ii);
-    BOOST_REQUIRE_MESSAGE(ind,"dynamic_pointer_cast to Index from InflationIndex failed");
-
-    Real notional = 1000000.0;//1m
-    IndexedCashFlow iicf(notional,ind,baseDate,fixDate,payDate);
-    Real correctIndexed = ii->fixing(iicf.fixingDate())/ii->fixing(iicf.baseDate());
-    Real calculatedIndexed = iicf.amount()/iicf.notional();
-    BOOST_REQUIRE_MESSAGE(std::fabs(correctIndexed - calculatedIndexed) < eps,
-               "IndexedCashFlow indexing wrong: " << calculatedIndexed << " vs correct = "
-               << correctIndexed);
-
-
-    //===========================================================================================
-    // Test zero coupon swap
-
-    // first make one ...
-
-    ext::shared_ptr<ZeroInflationIndex> zii = ext::dynamic_pointer_cast<ZeroInflationIndex>(ii);
-    BOOST_REQUIRE_MESSAGE(zii,"dynamic_pointer_cast to ZeroInflationIndex from UKRPI failed");
-    ZeroCouponInflationSwap nzcis(Swap::Payer,
-                                  1000000.0,
-                                  evaluationDate,
-                                  zcData[6].date,    // end date = maturity
-                                  calendar, bdc, dc, zcData[6].rate/100.0, // fixed rate
-                                  zii, observationLag, CPI::AsIndex);
-
-    // N.B. no coupon pricer because it is not a coupon, effect of inflation curve via
-    //      inflation curve attached to the inflation index.
-    Handle<YieldTermStructure> hTS(nominalTS);
-    ext::shared_ptr<PricingEngine> sppe(new DiscountingSwapEngine(hTS));
-    nzcis.setPricingEngine(sppe);
-
-    // ... and price it, should be zero
-    BOOST_CHECK_MESSAGE(fabs(nzcis.NPV())<0.00001,"ZCIS does not reprice to zero "
-                        << nzcis.NPV()
-                        << evaluationDate << " to " << zcData[6].date << " becoming " << nzcis.maturityDate()
-                        << " rate " << zcData[6].rate
-                        << " fixed leg " << nzcis.legNPV(0)
-                        << " indexed-predicted inflated leg " << nzcis.legNPV(1)
-                        << " discount " << nominalTS->discount(nzcis.maturityDate())
-                        );
+    auto zeroCurve = ext::make_shared<InterpolatedZeroInflationCurve<Linear>>(
+                                 evaluationDate, calendar, dc, observationLag,
+                                 frequency, nodes, rates);
+    hz.linkTo(zeroCurve);
 
     // Perform checks on the seasonality for this non-interpolated index
     checkSeasonality(hz, ii);
@@ -512,84 +653,18 @@ void InflationTest::testZeroTermStructure() {
 
     bool interpYES = true;
     QL_DEPRECATED_DISABLE_WARNING
-    ext::shared_ptr<UKRPI> iiUKRPIyes(new UKRPI(interpYES, hz));
+    ext::shared_ptr<UKRPI> iiyes(new UKRPI(interpYES, hz));
     QL_DEPRECATED_ENABLE_WARNING
     for (Size i=0; i<LENGTH(fixData);i++) {
-        iiUKRPIyes->addFixing(rpiSchedule[i], fixData[i]);
+        iiyes->addFixing(rpiSchedule[i], fixData[i]);
     }
-
-    ext::shared_ptr<ZeroInflationIndex> iiyes
-        = ext::dynamic_pointer_cast<ZeroInflationIndex>(iiUKRPIyes);
-
-    // now build the zero inflation curve
-    // same data, bigger lag or it will be a self-contradiction
-    Period observationLagyes = Period(3,Months);
-
-    auto makeHelperYes = [&](const Handle<Quote>& quote, const Date& maturity) {
-        return ext::make_shared<ZeroCouponInflationSwapHelper>(
-            quote, observationLagyes, maturity, calendar, bdc, dc, iiyes, CPI::AsIndex,
-            Handle<YieldTermStructure>(nominalTS));
-    };
-    auto helpersyes = makeHelpers<ZeroInflationTermStructure>(zcData, makeHelperYes);
-
-    ext::shared_ptr<PiecewiseZeroInflationCurve<Linear> > pZITSyes(
-            new PiecewiseZeroInflationCurve<Linear>(
-            evaluationDate, calendar, dc, observationLagyes,
-            frequency, baseZeroRate, helpersyes));
-
-    pZITSyes->recalculate();
-
-    // For interpolated fixings, the zero rates on the curve no longer match the data.
-    // The helpers still give the correct implied rates, of course.
-    for (Size i=0; i<zcData.size(); i++) {
-        BOOST_CHECK_MESSAGE(std::fabs(helpersyes[i]->impliedQuote()
-                        - zcData[i].rate/100.0) < eps,
-                    "ZITS INTERPOLATED implied quote != instrument "
-                    << helpersyes[i]->impliedQuote()
-                    << " vs " << zcData[i].rate/100.0);
-    }
-
-
-    //===========================================================================================
-    // Test zero coupon swap
-
-    hz.linkTo(pZITSyes);
-
-    ext::shared_ptr<ZeroInflationIndex> ziiyes = ext::dynamic_pointer_cast<ZeroInflationIndex>(iiyes);
-    BOOST_REQUIRE_MESSAGE(ziiyes,"dynamic_pointer_cast to ZeroInflationIndex from UKRPI-I failed");
-    ZeroCouponInflationSwap nzcisyes(Swap::Payer,
-                                     1000000.0,
-                                     evaluationDate,
-                                     zcData[6].date,    // end date = maturity
-                                     calendar, bdc, dc, zcData[6].rate/100.0, // fixed rate
-                                     ziiyes, observationLagyes, CPI::AsIndex);
-
-    // N.B. no coupon pricer because it is not a coupon, effect of inflation curve via
-    //      inflation curve attached to the inflation index.
-    nzcisyes.setPricingEngine(sppe);
-
-    // ... and price it, should be zero
-    BOOST_CHECK_MESSAGE(fabs(nzcisyes.NPV())<0.00001,"ZCIS-I does not reprice to zero "
-                        << nzcisyes.NPV()
-                        << evaluationDate << " to " << zcData[6].date << " becoming " << nzcisyes.maturityDate()
-                        << " rate " << zcData[6].rate
-                        << " fixed leg " << nzcisyes.legNPV(0)
-                        << " indexed-predicted inflated leg " << nzcisyes.legNPV(1)
-                        << " discount " << nominalTS->discount(nzcisyes.maturityDate())
-                        );
 
     // Perform checks on the seasonality for this interpolated index
     checkSeasonality(hz, iiyes);
-
-    // remove circular refernce
-    hz.linkTo(ext::shared_ptr<ZeroInflationTermStructure>());
 }
 
-void InflationTest::testZeroIndexFutureFixing() {
+BOOST_AUTO_TEST_CASE(testZeroIndexFutureFixing) {
     BOOST_TEST_MESSAGE("Testing that zero inflation indices forecast future fixings...");
-
-    SavedSettings backup;
-    IndexHistoryCleaner cleaner;
 
     EUHICP euhicp;
 
@@ -622,10 +697,8 @@ void InflationTest::testZeroIndexFutureFixing() {
                     << "\n    returned: " << fixing);
 }
 
-void InflationTest::testInterpolatedZeroTermStructure() {
+BOOST_AUTO_TEST_CASE(testInterpolatedZeroTermStructure) {
     BOOST_TEST_MESSAGE("Testing interpolated zero-rate inflation curve...");
-
-    SavedSettings backup;
 
     Date today = Date(27, January, 2022);
     Settings::instance().evaluationDate() = today;
@@ -664,11 +737,8 @@ void InflationTest::testInterpolatedZeroTermStructure() {
 // year on year tests, index, termstructure, and swaps
 //===========================================================================================
 
-void InflationTest::testYYIndex() {
-    BOOST_TEST_MESSAGE("Testing year-on-year inflation indices...");
-
-    SavedSettings backup;
-    IndexHistoryCleaner cleaner;
+BOOST_AUTO_TEST_CASE(testQuotedYYIndex) {
+    BOOST_TEST_MESSAGE("Testing quoted year-on-year inflation indices...");
 
     YYEUHICP yyeuhicp(true);
     if (yyeuhicp.name() != "EU YY_HICP"
@@ -686,22 +756,6 @@ void InflationTest::testYYIndex() {
                     << yyeuhicp.availabilityLag() << ")");
     }
 
-    YYEUHICPr yyeuhicpr(true);
-    if (yyeuhicpr.name() != "EU YYR_HICP"
-        || yyeuhicpr.frequency() != Monthly
-        || yyeuhicpr.revised()
-        || !yyeuhicpr.interpolated()
-        || !yyeuhicpr.ratio()
-        || yyeuhicpr.availabilityLag() != 1*Months) {
-        BOOST_ERROR("wrong year-on-year EU HICPr data ("
-                    << yyeuhicpr.name() << ", "
-                    << yyeuhicpr.frequency() << ", "
-                    << yyeuhicpr.revised() << ", "
-                    << yyeuhicpr.interpolated() << ", "
-                    << yyeuhicpr.ratio() << ", "
-                    << yyeuhicpr.availabilityLag() << ")");
-    }
-
     YYUKRPI yyukrpi(false);
     if (yyukrpi.name() != "UK YY_RPI"
         || yyukrpi.frequency() != Monthly
@@ -717,8 +771,156 @@ void InflationTest::testYYIndex() {
                     << yyukrpi.ratio() << ", "
                     << yyukrpi.availabilityLag() << ")");
     }
+}
+
+BOOST_AUTO_TEST_CASE(testRatioYYIndex) {
+    BOOST_TEST_MESSAGE("Testing ratio year-on-year inflation indices...");
+
+    auto euhicp = ext::make_shared<EUHICP>();
+    auto ukrpi = ext::make_shared<UKRPI>();
+
+    YoYInflationIndex yyeuhicpr(euhicp, true);
+    if (yyeuhicpr.name() != "EU YYR_HICP"
+        || yyeuhicpr.frequency() != Monthly
+        || yyeuhicpr.revised()
+        || !yyeuhicpr.interpolated()
+        || !yyeuhicpr.ratio()
+        || yyeuhicpr.availabilityLag() != 1*Months) {
+        BOOST_ERROR("wrong year-on-year EU HICPr data ("
+                    << yyeuhicpr.name() << ", "
+                    << yyeuhicpr.frequency() << ", "
+                    << yyeuhicpr.revised() << ", "
+                    << yyeuhicpr.interpolated() << ", "
+                    << yyeuhicpr.ratio() << ", "
+                    << yyeuhicpr.availabilityLag() << ")");
+    }
+
+    YoYInflationIndex yyukrpir(ukrpi, false);
+    if (yyukrpir.name() != "UK YYR_RPI"
+        || yyukrpir.frequency() != Monthly
+        || yyukrpir.revised()
+        || yyukrpir.interpolated()
+        || !yyukrpir.ratio()
+        || yyukrpir.availabilityLag() != 1*Months) {
+        BOOST_ERROR("wrong year-on-year UK RPIr data ("
+                    << yyukrpir.name() << ", "
+                    << yyukrpir.frequency() << ", "
+                    << yyukrpir.revised() << ", "
+                    << yyukrpir.interpolated() << ", "
+                    << yyukrpir.ratio() << ", "
+                    << yyukrpir.availabilityLag() << ")");
+    }
+
+
+    // Retrieval test.
+    //----------------
+    // make sure of the evaluation date
+    Date evaluationDate(13, August, 2007);
+    evaluationDate = UnitedKingdom().adjust(evaluationDate);
+    Settings::instance().evaluationDate() = evaluationDate;
+
+    // fixing data
+    Date from(1, January, 2005);
+    Date to(13, August, 2007);
+    Schedule rpiSchedule = MakeSchedule().from(from).to(to)
+    .withTenor(1*Months)
+    .withCalendar(UnitedKingdom())
+    .withConvention(ModifiedFollowing);
+
+    Real fixData[] = { 189.9, 189.9, 189.6, 190.5, 191.6, 192.0,
+        192.2, 192.2, 192.6, 193.1, 193.3, 193.6,
+        194.1, 193.4, 194.2, 195.0, 196.5, 197.7,
+        198.5, 198.5, 199.2, 200.1, 200.4, 201.1,
+        202.7, 201.6, 203.1, 204.4, 205.4, 206.2,
+        207.3 };
+
+    for (Size i=0; i<LENGTH(fixData);i++) {
+        ukrpi->addFixing(rpiSchedule[i], fixData[i]);
+    }
+
+    auto iir = ext::make_shared<YoYInflationIndex>(ukrpi, false);
+    auto iirYES = ext::make_shared<YoYInflationIndex>(ukrpi, true);
+
+    Date todayMinusLag = evaluationDate - iir->availabilityLag();
+    std::pair<Date,Date> lim = inflationPeriod(todayMinusLag, iir->frequency());
+    todayMinusLag = lim.second + 1 - 2*Period(iir->frequency());
+
+    Real eps = 1.0e-8;
+
+    // Interpolation tests
+    //--------------------
+    // (no TS so can't forecast).
+    for (Size i=13; i<rpiSchedule.size();i++) {
+        std::pair<Date,Date> lim = inflationPeriod(rpiSchedule[i],
+                                                   iir->frequency());
+        std::pair<Date,Date> limBef = inflationPeriod(rpiSchedule[i-12],
+                                                      iir->frequency());
+        for (Date d=lim.first; d<=lim.second; d++) {
+            if (d < todayMinusLag) {
+                Rate expected = fixData[i]/fixData[i-12] - 1.0;
+                Rate calculated = iir->fixing(d);
+                BOOST_CHECK_MESSAGE(std::fabs(calculated - expected) < eps,
+                                    "Non-interpolated fixings not constant within a period: "
+                                    << calculated
+                                    << ", should be "
+                                    << expected);
+
+                Real dp= lim.second + 1- lim.first;
+                Real dpBef=limBef.second + 1 - limBef.first;
+                Real dl = d-lim.first;
+                // potentially does not work on 29th Feb
+                Real dlBef = NullCalendar().advance(d, -1*Years, ModifiedFollowing)
+                -limBef.first;
+
+                Real linearNow = fixData[i] + (fixData[i+1]-fixData[i])*dl/dp;
+                Real linearBef = fixData[i-12] + (fixData[i+1-12]-fixData[i-12])*dlBef/dpBef;
+                Rate expectedYES = linearNow / linearBef - 1.0;
+                Rate calculatedYES = iirYES->fixing(d);
+                BOOST_CHECK_MESSAGE(fabs(expectedYES-calculatedYES)<eps,
+                                    "Error in interpolated fixings: expect "<<expectedYES
+                                    <<" see " << calculatedYES
+                                    <<" flat " << calculated
+                                    <<", data: "<< fixData[i-12] <<", "<< fixData[i+1-12]
+                                    <<", "<<    fixData[i] <<", "<< fixData[i+1]
+                                    <<", fac: "<< dp <<", "<< dl
+                                    <<", "<< dpBef <<", "<< dlBef
+                                    <<", to: "<<linearNow<<", "<<linearBef
+                                    );
+            }
+        }
+    }
+}
+
+BOOST_AUTO_TEST_CASE(testOldRatioYYIndex) {
+    BOOST_TEST_MESSAGE("Testing old-style ratio year-on-year inflation indices...");
+
+    QL_DEPRECATED_DISABLE_WARNING
+
+    YYEUHICPr yyeuhicpr(true);
+
+    QL_DEPRECATED_ENABLE_WARNING
+
+    if (yyeuhicpr.name() != "EU YYR_HICP"
+        || yyeuhicpr.frequency() != Monthly
+        || yyeuhicpr.revised()
+        || !yyeuhicpr.interpolated()
+        || !yyeuhicpr.ratio()
+        || yyeuhicpr.availabilityLag() != 1*Months) {
+        BOOST_ERROR("wrong year-on-year EU HICPr data ("
+                    << yyeuhicpr.name() << ", "
+                    << yyeuhicpr.frequency() << ", "
+                    << yyeuhicpr.revised() << ", "
+                    << yyeuhicpr.interpolated() << ", "
+                    << yyeuhicpr.ratio() << ", "
+                    << yyeuhicpr.availabilityLag() << ")");
+    }
+
+    QL_DEPRECATED_DISABLE_WARNING
 
     YYUKRPIr yyukrpir(false);
+
+    QL_DEPRECATED_ENABLE_WARNING
+
     if (yyukrpir.name() != "UK YYR_RPI"
         || yyukrpir.frequency() != Monthly
         || yyukrpir.revised()
@@ -758,8 +960,14 @@ void InflationTest::testYYIndex() {
         207.3 };
 
     bool interp = false;
+
+    QL_DEPRECATED_DISABLE_WARNING
+
     ext::shared_ptr<YYUKRPIr> iir(new YYUKRPIr(interp));
     ext::shared_ptr<YYUKRPIr> iirYES(new YYUKRPIr(true));
+
+    QL_DEPRECATED_ENABLE_WARNING
+
     for (Size i=0; i<LENGTH(fixData);i++) {
         iir->addFixing(rpiSchedule[i], fixData[i]);
         iirYES->addFixing(rpiSchedule[i], fixData[i]);
@@ -813,17 +1021,10 @@ void InflationTest::testYYIndex() {
             }
         }
     }
-
 }
 
-
-void InflationTest::testYYTermStructure() {
+BOOST_AUTO_TEST_CASE(testYYTermStructure) {
     BOOST_TEST_MESSAGE("Testing year-on-year inflation term structure...");
-
-    using namespace inflation_test;
-
-    SavedSettings backup;
-    IndexHistoryCleaner cleaner;
 
     // try the YY UK
     Calendar calendar = UnitedKingdom();
@@ -849,9 +1050,10 @@ void InflationTest::testYYTermStructure() {
 
     RelinkableHandle<YoYInflationTermStructure> hy;
     bool interp = false;
-    ext::shared_ptr<YYUKRPIr> iir(new YYUKRPIr(interp, hy));
+    auto rpi = ext::make_shared<UKRPI>();
+    auto iir = ext::make_shared<YoYInflationIndex>(rpi, interp, hy);
     for (Size i=0; i<LENGTH(fixData); i++) {
-        iir->addFixing(rpiSchedule[i], fixData[i]);
+        rpi->addFixing(rpiSchedule[i], fixData[i]);
     }
 
 
@@ -978,7 +1180,7 @@ void InflationTest::testYYTermStructure() {
     hy.linkTo(ext::shared_ptr<YoYInflationTermStructure>());
 }
 
-void InflationTest::testPeriod() {
+BOOST_AUTO_TEST_CASE(testPeriod) {
     BOOST_TEST_MESSAGE("Testing inflation period...");
 
     Date d;
@@ -1053,18 +1255,15 @@ void InflationTest::testPeriod() {
     }
 }
 
-void InflationTest::testCpiFlatInterpolation() {
+BOOST_AUTO_TEST_CASE(testCpiFlatInterpolation) {
     BOOST_TEST_MESSAGE("Testing CPI flat interpolation...");
-
-    SavedSettings backup;
-    IndexHistoryCleaner cleaner;
 
     Settings::instance().evaluationDate() = Date(10, February, 2022);
 
     QL_DEPRECATED_DISABLE_WARNING
 
-    auto testIndex1 = ext::shared_ptr<UKRPI>(new UKRPI(false));
-    auto testIndex2 = ext::shared_ptr<UKRPI>(new UKRPI(true));
+    auto testIndex1 = ext::make_shared<UKRPI>(false);
+    auto testIndex2 = ext::make_shared<UKRPI>(true);
 
     QL_DEPRECATED_ENABLE_WARNING
 
@@ -1102,18 +1301,15 @@ void InflationTest::testCpiFlatInterpolation() {
     }
 }
 
-void InflationTest::testCpiLinearInterpolation() {
+BOOST_AUTO_TEST_CASE(testCpiLinearInterpolation) {
     BOOST_TEST_MESSAGE("Testing CPI linear interpolation...");
-
-    SavedSettings backup;
-    IndexHistoryCleaner cleaner;
 
     Settings::instance().evaluationDate() = Date(10, February, 2022);
 
     QL_DEPRECATED_DISABLE_WARNING
 
-    auto testIndex1 = ext::shared_ptr<UKRPI>(new UKRPI(false));
-    auto testIndex2 = ext::shared_ptr<UKRPI>(new UKRPI(true));
+    auto testIndex1 = ext::make_shared<UKRPI>(false);
+    auto testIndex2 = ext::make_shared<UKRPI>(true);
 
     QL_DEPRECATED_ENABLE_WARNING
 
@@ -1123,7 +1319,7 @@ void InflationTest::testCpiLinearInterpolation() {
     testIndex1->addFixing(Date(1, February, 2021), 296.0);
     testIndex1->addFixing(Date(1, March,    2021), 296.9);
 
-    for (const auto& testIndex : {testIndex1, testIndex2}) {
+    auto check = [&](const ext::shared_ptr<ZeroInflationIndex>& testIndex) {
         Real calculated = CPI::laggedFixing(testIndex, Date(10, February, 2021), 3 * Months, CPI::Linear);
         Real expected = 293.5 * (19/28.0) + 295.4 * (9/28.0);
 
@@ -1153,14 +1349,14 @@ void InflationTest::testCpiLinearInterpolation() {
                             "failed to retrieve inflation fixing" <<
                             "\n    expected:   " << expected <<
                             "\n    calculated: " << calculated);
-    }
+    };
+
+    check(testIndex1);
+    check(testIndex2);
 }
 
-void InflationTest::testCpiAsIndexInterpolation() {
+BOOST_AUTO_TEST_CASE(testCpiAsIndexInterpolation) {
     BOOST_TEST_MESSAGE("Testing CPI as-index interpolation...");
-
-    SavedSettings backup;
-    IndexHistoryCleaner cleaner;
 
     Date today = Date(10, February, 2022);
     Settings::instance().evaluationDate() = today;
@@ -1174,8 +1370,8 @@ void InflationTest::testCpiAsIndexInterpolation() {
 
     QL_DEPRECATED_DISABLE_WARNING
 
-    auto testIndex1 = ext::shared_ptr<UKRPI>(new UKRPI(false, mock_curve));
-    auto testIndex2 = ext::shared_ptr<UKRPI>(new UKRPI(true, mock_curve));
+    auto testIndex1 = ext::make_shared<UKRPI>(false, mock_curve);
+    auto testIndex2 = ext::make_shared<UKRPI>(true, mock_curve);
 
     QL_DEPRECATED_ENABLE_WARNING
 
@@ -1239,23 +1435,6 @@ void InflationTest::testCpiAsIndexInterpolation() {
                         "\n    calculated: " << calculated);
 }
 
-test_suite* InflationTest::suite() {
+BOOST_AUTO_TEST_SUITE_END()
 
-    auto* suite = BOOST_TEST_SUITE("Inflation tests");
-
-    suite->add(QUANTLIB_TEST_CASE(&InflationTest::testPeriod));
-
-    suite->add(QUANTLIB_TEST_CASE(&InflationTest::testZeroIndex));
-    suite->add(QUANTLIB_TEST_CASE(&InflationTest::testZeroTermStructure));
-    suite->add(QUANTLIB_TEST_CASE(&InflationTest::testZeroIndexFutureFixing));
-    suite->add(QUANTLIB_TEST_CASE(&InflationTest::testInterpolatedZeroTermStructure));
-
-    suite->add(QUANTLIB_TEST_CASE(&InflationTest::testYYIndex));
-    suite->add(QUANTLIB_TEST_CASE(&InflationTest::testYYTermStructure));
-
-    suite->add(QUANTLIB_TEST_CASE(&InflationTest::testCpiFlatInterpolation));
-    suite->add(QUANTLIB_TEST_CASE(&InflationTest::testCpiLinearInterpolation));
-    suite->add(QUANTLIB_TEST_CASE(&InflationTest::testCpiAsIndexInterpolation));
-
-    return suite;
-}
+BOOST_AUTO_TEST_SUITE_END()

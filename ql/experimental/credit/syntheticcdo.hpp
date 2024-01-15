@@ -30,6 +30,7 @@
 
 #include <ql/instrument.hpp>
 #include <ql/default.hpp>
+#include <ql/optional.hpp>
 #include <ql/time/schedule.hpp>
 
 #include <ql/experimental/credit/basket.hpp>
@@ -98,8 +99,6 @@ namespace QuantLib {
       The pricing algorithm allows for varying notional amounts and
       default termstructures of the underlyings.
 
-      \ingroup credit
-
       \todo Investigate and fix cases \f$ E_{i+1} < E_i. \f$
     */
     class SyntheticCDO : public Instrument {
@@ -123,7 +122,7 @@ namespace QuantLib {
                       Rate runningRate,
                       const DayCounter& dayCounter,
                       BusinessDayConvention paymentConvention,
-                      boost::optional<Real> notional = boost::none);
+                      ext::optional<Real> notional = ext::nullopt);
 
         const ext::shared_ptr<Basket>& basket() const { return basket_; }
 
